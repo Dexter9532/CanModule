@@ -1,18 +1,65 @@
+#include <SPI.h>
+#include "mcp2515_can.h"
 #include <Arduino.h>
 
-// put function declarations here:
-int myFunction(int, int);
+const int SPI_CS_PIN = 9;           // Samma som i fungerande sändare
+const int FAN_PIN = A3;             // Fläktstyrning
+mcp2515_can CAN(SPI_CS_PIN);        // Seed Studio CAN-klassen
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  Serial.begin(115200);
+  pinMode(FAN_PIN, OUTPUT);
+  digitalWrite(FAN_PIN, LOW);       // Fläkt av från start
+
+  // Initiera CAN med 100 kbps
+  if (CAN.begin(CAN_100KBPS) == CAN_OK) {
+    Serial.println("CAN init OK");
+  } else {
+    Serial.println("CAN init FAIL");
+    while (1);
+  }
+
+  // Acceptera alla CAN-ID:n
+  CAN.init_Mask(0, 0, 0x7FF);
+  CAN.init_Filt(0, 0, 0x000);
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-}
+  unsigned char len = 0;
+  unsigned char buf[8];
+  unsigned long rxId;
 
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+  if (CAN_MSGAVAIL == CAN.checkReceive()) {
+    CAN.readMsgBuf(&len, buf);
+    rxId = CAN.getCanId();
+
+    Serial.print("Meddelande från ID: 0x");
+    Serial.println(rxId, HEX);
+    Serial.print("Data (len ");
+    Serial.print(len);
+    Serial.print("): ");
+
+    //delay(1000); // Vänta 1 sekund innan nästa meddelande
+
+    for (int i = 0; i < len; i++) {
+      Serial.print(buf[i], HEX);
+      Serial.print(" ");
+    }
+    Serial.println();
+
+    if (rxId == 0x459) {
+      if (buf[1] == 0x04) {
+        digitalWrite(FAN_PIN, HIGH);
+        Serial.println("Fläkt PÅ");
+        byte data[] = {0x01};
+        CAN.sendMsgBuf(0x460, 0, 1, data);
+      } 
+      else if (buf[1] == 0x00) {
+        digitalWrite(FAN_PIN, LOW);
+        Serial.println("Fläkt AV");
+        byte data[] = {0x00};
+        CAN.sendMsgBuf(0x460, 0, 1, data);
+      }
+    }
+  }
 }
